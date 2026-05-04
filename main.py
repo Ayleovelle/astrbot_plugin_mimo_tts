@@ -1,10 +1,12 @@
 import asyncio
+import io
 import os
 import random
 import string
 import tempfile
 import time
 import traceback
+import wave
 from pathlib import Path
 from typing import Optional
 
@@ -24,7 +26,7 @@ PLUGIN_DATA_DIR_NAME = "astrbot_plugin_mimo_tts"
     "astrbot_plugin_mimo_tts",
     "Ayleovelle",
     "基于小米MiMo-V2.5-TTS-VoiceClone引擎的语音克隆与文本转语音插件",
-    "0.0.7-beta",
+    "0.0.8-beta",
 )
 class MiMoTTSPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
@@ -173,9 +175,10 @@ class MiMoTTSPlugin(Star):
         if not self.enabled:
             return
 
-        # Don't intercept commands
+        # Don't intercept commands (except /mimo_clone_end during pending flow)
         msg_text = event.message_str.strip()
-        if msg_text.startswith("/mimo") or msg_text.startswith("/tts"):
+        is_clone_end = msg_text.startswith("/mimo_clone_end")
+        if (msg_text.startswith("/mimo") or msg_text.startswith("/tts")) and not is_clone_end:
             return
 
         # ── pending clone flow handling ──
@@ -183,6 +186,10 @@ class MiMoTTSPlugin(Star):
         pending = self._pending_clones.get(uk)
         if pending:
             event.stop_event()  # 阻止消息传播到 LLM
+            if is_clone_end:
+                del self._pending_clones[uk]
+                yield event.plain_result("已终止克隆流程。")
+                return
             if time.time() > pending.get("expire", 0):
                 del self._pending_clones[uk]
                 yield event.plain_result("操作超时，已取消。")
@@ -277,9 +284,19 @@ class MiMoTTSPlugin(Star):
         pending["audio_bytes"] = audio_bytes
         pending["expire"] = time.time() + 60
         name = pending["name"]
+
+        info = self._analyze_audio(audio_bytes)
+        size_kb = info["size"] / 1024
+        duration_str = f"{info['duration']:.1f}秒" if info["duration"] else "未知"
         return event.plain_result(
-            f"收到音频。是否使用此音频克隆音色「{name}」？\n"
-            f"回复 确认 进行克隆，回复 取消 放弃。"
+            f"已收到音频文件，识别结果：\n"
+            f"  格式: {info['format']}\n"
+            f"  大小: {size_kb:.1f} KB\n"
+            f"  时长: {duration_str}\n"
+            f"  采样率: {info['sample_rate']} Hz\n"
+            f"  声道数: {info['channels']}\n"
+            f"\n是否使用此音频克隆音色「{name}」？\n"
+            f"回复 确认 进行克隆，回复 取消 或 /mimo_clone_end 放弃。"
         )
 
     async def _handle_confirming(self, event: AstrMessageEvent, uk: str, pending: dict, msg_text: str):
@@ -402,7 +419,8 @@ class MiMoTTSPlugin(Star):
         }
         yield event.plain_result(
             f"请在 {timeout} 秒内发送一段语音消息或音频文件（3-10秒），"
-            f"用于克隆音色「{raw}」。"
+            f"用于克隆音色「{raw}」。\n"
+            f"发送 /mimo_clone_end 可随时终止流程。"
         )
 
     # ── /mimo_voices ───────────────────────────────────────────
@@ -618,7 +636,60 @@ class MiMoTTSPlugin(Star):
         except Exception as e:
             return f"TTS 失败: {e}"
 
+    # ── /mimo_clone_end ───────────────────────────────────────
+    @filter.command("mimo_clone_end")
+    async def cmd_clone_end(self, event: AstrMessageEvent):
+        """终止当前克隆流程"""
+        uk = self._user_key(event)
+        if uk in self._pending_clones:
+            del self._pending_clones[uk]
+            yield event.plain_result("已终止克隆流程。")
+        else:
+            yield event.plain_result("当前没有正在进行的克隆流程。")
+
     # ── helpers ─────────────────────────────────────────────────
+    @staticmethod
+    def _analyze_audio(audio_bytes: bytes) -> dict:
+        """Analyze audio bytes and return metadata."""
+        result = {
+            "format": "未知",
+            "size": len(audio_bytes),
+            "duration": None,
+            "sample_rate": 0,
+            "channels": 0,
+        }
+
+        # WAV detection: RIFF....WAVE
+        if audio_bytes[:4] == b"RIFF" and audio_bytes[8:12] == b"WAVE":
+            result["format"] = "WAV"
+            try:
+                with wave.open(io.BytesIO(audio_bytes), "rb") as wf:
+                    result["sample_rate"] = wf.getframerate()
+                    result["channels"] = wf.getnchannels()
+                    frames = wf.getnframes()
+                    if result["sample_rate"] > 0:
+                        result["duration"] = frames / result["sample_rate"]
+            except Exception:
+                pass
+        # MP3 detection: ID3 tag or MPEG sync word
+        elif audio_bytes[:3] == b"ID3" or (len(audio_bytes) > 2 and audio_bytes[0] == 0xFF and (audio_bytes[1] & 0xE0) == 0xE0):
+            result["format"] = "MP3"
+            result["sample_rate"] = 24000  # MiMo default
+            # Rough duration estimate: ~128kbps typical
+            if len(audio_bytes) > 4:
+                result["duration"] = len(audio_bytes) / (128 * 1024 / 8)
+        # OGG detection
+        elif audio_bytes[:4] == b"OggS":
+            result["format"] = "OGG"
+        # FLAC detection
+        elif audio_bytes[:4] == b"fLaC":
+            result["format"] = "FLAC"
+        # M4A/AAC detection
+        elif len(audio_bytes) > 12 and audio_bytes[4:8] == b"ftyp":
+            result["format"] = "M4A/AAC"
+
+        return result
+
     async def _extract_audio(self, event: AstrMessageEvent) -> Optional[bytes]:
         """Extract audio bytes from a message attachment if present."""
         attachments = getattr(event, "attachments", None)
