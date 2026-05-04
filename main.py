@@ -1,13 +1,16 @@
 import asyncio
 import os
 import random
+import string
 import tempfile
+import time
 import traceback
 from pathlib import Path
 from typing import Optional
 
 import aiohttp
 from astrbot.api.event import filter, AstrMessageEvent
+from astrbot.api.event.filter import PermissionType
 from astrbot.api.star import Context, Star, register
 from astrbot.api import logger
 from astrbot.core.config import AstrBotConfig
@@ -37,6 +40,7 @@ class MiMoTTSPlugin(Star):
         self._astrbot_config = config
         self.voice_mgr = VoiceManager(data_base)
         self._client: Optional[MiMoClient] = None
+        self._pending_clones: dict[str, dict] = {}
 
     # ── config helpers ──────────────────────────────────────────
     def _cfg(self, key: str, default=None):
@@ -142,10 +146,19 @@ class MiMoTTSPlugin(Star):
     def _reload_client(self):
         self._client = None
 
+    @staticmethod
+    def _user_key(event: AstrMessageEvent) -> str:
+        return f"{event.session_id}_{event.get_sender_id()}"
+
+    @staticmethod
+    def _generate_password(length: int = 10) -> str:
+        chars = string.ascii_letters + string.digits
+        return "".join(random.choices(chars, k=length))
+
     # ── auto-TTS: on_message ────────────────────────────────────
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def on_message_tts(self, event: AstrMessageEvent):
-        """根据概率自动将 bot 回复转为语音。"""
+        """根据概率自动将 bot 回复转为语音，同时处理克隆流程中的待确认消息。"""
         if not self.enabled:
             return
 
@@ -153,6 +166,25 @@ class MiMoTTSPlugin(Star):
         msg_text = event.message_str.strip()
         if msg_text.startswith("/mimo") or msg_text.startswith("/tts"):
             return
+
+        # ── pending clone flow handling ──
+        uk = self._user_key(event)
+        pending = self._pending_clones.get(uk)
+        if pending:
+            if time.time() > pending.get("expire", 0):
+                del self._pending_clones[uk]
+                yield event.plain_result("操作超时，已取消。")
+                return
+            state = pending["state"]
+            if state == "waiting_audio":
+                yield self._handle_waiting_audio(event, uk, pending)
+                return
+            elif state == "confirming":
+                yield self._handle_confirming(event, uk, pending, msg_text)
+                return
+            elif state == "deleting":
+                yield self._handle_deleting(event, uk, pending, msg_text)
+                return
 
         # Check if this is a bot reply (role == assistant)
         role = getattr(event, "role", None)
@@ -223,6 +255,63 @@ class MiMoTTSPlugin(Star):
             logger.debug(f"Auto-TTS failed: {traceback.format_exc()}")
             return None
 
+    # ── pending clone state handlers ───────────────────────────
+    async def _handle_waiting_audio(self, event: AstrMessageEvent, uk: str, pending: dict):
+        """Handle message when waiting for audio in clone flow."""
+        audio_bytes = await self._extract_audio(event)
+        if not audio_bytes:
+            return  # Not an audio message, ignore
+        pending["state"] = "confirming"
+        pending["audio_bytes"] = audio_bytes
+        pending["expire"] = time.time() + 60
+        name = pending["name"]
+        return event.plain_result(
+            f"收到音频。是否使用此音频克隆音色「{name}」？\n"
+            f"回复 确认 进行克隆，回复 取消 放弃。"
+        )
+
+    async def _handle_confirming(self, event: AstrMessageEvent, uk: str, pending: dict, msg_text: str):
+        """Handle confirmation reply in clone flow."""
+        if msg_text == "确认":
+            name = pending["name"]
+            audio_bytes = pending["audio_bytes"]
+            del self._pending_clones[uk]
+            try:
+                self.voice_mgr.add_voice(name, audio_bytes)
+                ref_b64 = self.voice_mgr.get_reference_audio_b64(name)
+                test_audio = await self.client.clone_test(ref_b64)
+                self.voice_mgr.set_current_voice(name)
+                yield event.plain_result(f"音色「{name}」克隆完成！已自动设为当前音色。")
+                yield self._send_audio(event, test_audio, self._cfg("audio_format", "wav"))
+            except ValueError as e:
+                yield event.plain_result(str(e))
+            except RuntimeError as e:
+                self.voice_mgr.remove_voice(name)
+                yield event.plain_result(f"音色克隆失败: {e}")
+            except Exception:
+                logger.error(f"Clone error: {traceback.format_exc()}")
+                self.voice_mgr.remove_voice(name)
+                yield event.plain_result("音色克隆时发生未知错误，请查看日志。")
+        elif msg_text == "取消":
+            del self._pending_clones[uk]
+            yield event.plain_result("已取消音色克隆。")
+        # else: ignore unrelated messages
+
+    async def _handle_deleting(self, event: AstrMessageEvent, uk: str, pending: dict, msg_text: str):
+        """Handle password confirmation in voice delete flow."""
+        expected = pending.get("password", "")
+        name = pending.get("name", "")
+        if msg_text.strip() == expected:
+            deleted = self.voice_mgr.remove_voice(name)
+            del self._pending_clones[uk]
+            if deleted:
+                yield event.plain_result(f"音色「{name}」已删除。")
+            else:
+                yield event.plain_result(f"音色「{name}」不存在或已被删除。")
+        else:
+            del self._pending_clones[uk]
+            yield event.plain_result("密码错误，已取消删除操作。")
+
     # ── /mimo_tts ──────────────────────────────────────────────
     @filter.command("mimo_tts")
     async def cmd_tts(self, event: AstrMessageEvent):
@@ -279,7 +368,7 @@ class MiMoTTSPlugin(Star):
     # ── /mimo_clone ────────────────────────────────────────────
     @filter.command("mimo_clone")
     async def cmd_clone(self, event: AstrMessageEvent):
-        """从音频附件克隆新音色。用法: /mimo_clone <音色名>（需同时发送音频文件）"""
+        """开始克隆流程。用法: /mimo_clone <音色名>（随后发送音频文件）"""
         raw = event.message_str.strip()
         if raw.startswith("/mimo_clone"):
             raw = raw[len("/mimo_clone"):].strip()
@@ -287,46 +376,22 @@ class MiMoTTSPlugin(Star):
         if not raw:
             yield event.plain_result(
                 "用法: /mimo_clone <音色名>\n"
-                "请同时发送一段参考音频（语音消息或音频文件）。\n"
+                "发送命令后，在限定时间内发送一段语音消息或音频文件即可。\n"
                 "示例: /mimo_clone 我的声音"
             )
             return
 
-        voice_name = raw
-
-        audio_bytes = await self._extract_audio(event)
-        if not audio_bytes:
-            yield event.plain_result(
-                "未检测到音频附件。请在发送 /mimo_clone 命令时，"
-                "同时发送一段语音消息或音频文件（WAV/MP3格式，3-10秒即可）。"
-            )
-            return
-
-        try:
-            yield event.plain_result(f"正在验证音色克隆「{voice_name}」...")
-
-            self.voice_mgr.add_voice(voice_name, audio_bytes)
-
-            ref_b64 = self.voice_mgr.get_reference_audio_b64(voice_name)
-            test_audio = await self.client.clone_test(ref_b64)
-
-            self.voice_mgr.set_current_voice(voice_name)
-
-            yield event.plain_result(
-                f"音色「{voice_name}」克隆成功！已自动设为当前音色。"
-            )
-
-            yield self._send_audio(event, test_audio, self._cfg("audio_format", "wav"))
-
-        except ValueError as e:
-            yield event.plain_result(str(e))
-        except RuntimeError as e:
-            self.voice_mgr.remove_voice(voice_name)
-            yield event.plain_result(f"音色克隆失败: {e}")
-        except Exception:
-            logger.error(f"Clone error: {traceback.format_exc()}")
-            self.voice_mgr.remove_voice(voice_name)
-            yield event.plain_result("音色克隆时发生未知错误，请查看日志。")
+        timeout = self._cfg_int("clone_timeout", 60)
+        uk = self._user_key(event)
+        self._pending_clones[uk] = {
+            "state": "waiting_audio",
+            "name": raw,
+            "expire": time.time() + timeout,
+        }
+        yield event.plain_result(
+            f"请在 {timeout} 秒内发送一段语音消息或音频文件（3-10秒），"
+            f"用于克隆音色「{raw}」。"
+        )
 
     # ── /mimo_voices ───────────────────────────────────────────
     @filter.command("mimo_voices")
@@ -367,23 +432,52 @@ class MiMoTTSPlugin(Star):
         else:
             yield event.plain_result(f"未找到音色「{raw}」，请使用 /mimo_voices 查看可用音色。")
 
-    # ── /mimo_del_voice ────────────────────────────────────────
-    @filter.command("mimo_del_voice")
-    async def cmd_del_voice(self, event: AstrMessageEvent):
-        """删除已克隆的音色。用法: /mimo_del_voice <音色名>"""
-        raw = event.message_str.strip()
-        if raw.startswith("/mimo_del_voice"):
-            raw = raw[len("/mimo_del_voice"):].strip()
-
-        if not raw:
-            yield event.plain_result("用法: /mimo_del_voice <音色名>")
+    # ── /mimo_my_voice (admin only) ────────────────────────────
+    @filter.command("mimo_my_voice")
+    @filter.permission_type(PermissionType.ADMIN)
+    async def cmd_my_voice(self, event: AstrMessageEvent):
+        """列出所有已克隆的音色（仅管理员）"""
+        voices = self.voice_mgr.list_voices()
+        if not voices:
+            yield event.plain_result("尚未克隆任何音色。使用 /mimo_clone 创建。")
             return
 
-        deleted = self.voice_mgr.remove_voice(raw)
-        if deleted:
-            yield event.plain_result(f"音色「{raw}」已删除。")
-        else:
+        current = self.voice_mgr.current_voice
+        lines = ["已克隆的音色:"]
+        for v in voices:
+            marker = " ★ 当前" if v["name"] == current else ""
+            lines.append(f"  - {v['name']}（{v['created_at']}）{marker}")
+        yield event.plain_result("\n".join(lines))
+
+    # ── /mimo_voice_delete (admin only + password confirm) ────
+    @filter.command("mimo_voice_delete")
+    @filter.permission_type(PermissionType.ADMIN)
+    async def cmd_voice_delete(self, event: AstrMessageEvent):
+        """删除音色（需密码确认）。用法: /mimo_voice_delete <音色名>"""
+        raw = event.message_str.strip()
+        if raw.startswith("/mimo_voice_delete"):
+            raw = raw[len("/mimo_voice_delete"):].strip()
+
+        if not raw:
+            yield event.plain_result("用法: /mimo_voice_delete <音色名>")
+            return
+
+        if not self.voice_mgr.get_voice(raw):
             yield event.plain_result(f"未找到音色「{raw}」。")
+            return
+
+        pwd = self._generate_password()
+        timeout = self._cfg_int("clone_timeout", 60)
+        uk = self._user_key(event)
+        self._pending_clones[uk] = {
+            "state": "deleting",
+            "name": raw,
+            "password": pwd,
+            "expire": time.time() + timeout,
+        }
+        yield event.plain_result(
+            f"确认删除音色「{raw}」？请在 {timeout} 秒内输入以下密码:\n{pwd}"
+        )
 
     # ── /mimo_style ────────────────────────────────────────────
     @filter.command("mimo_style")

@@ -53,6 +53,12 @@
     "description": "启用 TTS 插件",
     "default": true
   },
+  "clone_timeout": {
+    "type": "int",
+    "description": "克隆等待超时（秒）",
+    "hint": "发送 /mimo_clone 后等待用户发送音频的超时时间",
+    "default": 60
+  },
   "enable_llm_tool": {
     "type": "bool",
     "description": "启用 LLM 工具调用",
