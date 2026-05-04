@@ -5,9 +5,13 @@
 ![AstrBot](https://img.shields.io/badge/AstrBot-%E2%89%A54.16-green)
 ![Version](https://img.shields.io/badge/version-0.1.0--beta-orange)
 ![License](https://img.shields.io/badge/license-MIT-blue)
-![Status](https://img.shields.io/badge/状态-活跃开发中-brightgreen)
+![Status](https://img.shields.io/badge/状态-暂停开发-yellow)
 
 </div>
+
+> **⚠️ 项目状态：暂停开发**
+>
+> 当前版本存在已知问题（克隆流程中 LLM 事件阻断与 AstrBot 管道机制冲突、`meme_manager` 插件事件传播干扰等），因时间关系暂时无法处理。核心功能（TTS 合成、音色管理）可用，但克隆流程的交互体验有待修复。欢迎提交 PR 或 Issue。
 
 # 🎤 MiMo VoiceClone TTS
 
