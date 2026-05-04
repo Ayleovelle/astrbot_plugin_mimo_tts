@@ -1,12 +1,11 @@
 <div align="center">
 
+![Code Quality](assets/code-quality.svg)
 ![Python](https://img.shields.io/badge/Python-3.10+-blue?logo=python)
 ![AstrBot](https://img.shields.io/badge/AstrBot-%E2%89%A54.16-green)
 ![Version](https://img.shields.io/badge/version-0.0.6--beta-orange)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![Status](https://img.shields.io/badge/状态-活跃开发中-brightgreen)
-
-![Code Quality](assets/code-quality.svg)
 
 </div>
 
