@@ -1,0 +1,28 @@
+{
+  "include": ["**/*.py"],
+  "exclude": ["__pycache__/**", ".git/**", "venv/**", ".venv/**", "assets/**"],
+  "concurrency": 4,
+  "verbose": false,
+  "output": {
+    "format": "console",
+    "top": 10,
+    "showDetails": false
+  },
+  "metrics": {
+    "weights": {
+      "complexity": 0.30,
+      "duplication": 0.20,
+      "size": 0.15,
+      "structure": 0.15,
+      "error": 0.10,
+      "documentation": 0.05,
+      "naming": 0.05
+    }
+  },
+  "ai": {
+    "enabled": false
+  },
+  "i18n": {
+    "locale": "zh"
+  }
+}

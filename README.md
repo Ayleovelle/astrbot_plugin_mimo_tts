@@ -2,9 +2,11 @@
 
 ![Python](https://img.shields.io/badge/Python-3.10+-blue?logo=python)
 ![AstrBot](https://img.shields.io/badge/AstrBot-%E2%89%A54.16-green)
-![Version](https://img.shields.io/badge/version-1.0.0-orange)
+![Version](https://img.shields.io/badge/version-0.0.6--beta-orange)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![Status](https://img.shields.io/badge/状态-活跃开发中-brightgreen)
+
+![Code Quality](assets/code-quality.svg)
 
 </div>
 
@@ -75,7 +77,9 @@ export MIMO_API_KEY="your_api_key_here"
 ### 4. 开始使用
 
 ```
-/mimo_clone 我的声音          ← 发送语音消息克隆音色
+/mimo_clone 我的声音          ← 发送命令
+（60秒内发送语音消息）         ← 发送参考音频
+确认                          ← 确认克隆
 /mimo_tts 你好世界             ← 用克隆音色合成语音
 ```
 
@@ -87,16 +91,17 @@ export MIMO_API_KEY="your_api_key_here"
 
 | 命令 | 说明 | 示例 |
 |------|------|------|
-| `/mimo_clone <名称>` | 克隆新音色（需附带音频） | `/mimo_clone 小明的声音` |
+| `/mimo_clone <名称>` | 开始克隆流程（随后发送音频） | `/mimo_clone 小明的声音` |
 | `/mimo_tts <文本>` | 将文本转为语音 | `/mimo_tts 今天天气真好` |
 
 ### 🗂️ 音色管理
 
-| 命令 | 说明 | 示例 |
-|------|------|------|
-| `/mimo_voices` | 列出所有已克隆的音色 | `/mimo_voices` |
-| `/mimo_set_voice <名称>` | 切换当前使用的音色 | `/mimo_set_voice 小美` |
-| `/mimo_del_voice <名称>` | 删除指定音色 | `/mimo_del_voice 旧音色` |
+| 命令 | 权限 | 说明 | 示例 |
+|------|------|------|------|
+| `/mimo_voices` | 所有人 | 列出所有已克隆的音色 | `/mimo_voices` |
+| `/mimo_my_voice` | 管理员 | 列出已克隆音色名称 | `/mimo_my_voice` |
+| `/mimo_set_voice <名称>` | 所有人 | 切换当前使用的音色 | `/mimo_set_voice 小美` |
+| `/mimo_voice_delete <名称>` | 管理员 | 删除音色（需密码确认） | `/mimo_voice_delete 旧音色` |
 
 ### 🎭 风格与配置
 
@@ -164,9 +169,11 @@ MiMo API 当前处于 **公测期免费**，后续收费政策请关注 [小米 
 </details>
 
 <details>
-<summary><b>为什么提示「未检测到音频附件」？</b></summary>
+<summary><b>克隆流程是怎样的？</b></summary>
 
-请在发送 `/mimo_clone` 命令的**同一条消息中**附带语音或音频文件。不同平台的附件获取方式存在差异，如遇问题请提 Issue。
+1. 发送 `/mimo_clone <音色名>`
+2. 在 60 秒内发送语音消息或音频文件（3-10秒即可）
+3. 收到确认提示后回复「确认」完成克隆，或「取消」放弃
 </details>
 
 ---
