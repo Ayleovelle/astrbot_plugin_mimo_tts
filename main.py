@@ -22,7 +22,7 @@ PLUGIN_DATA_DIR_NAME = "astrbot_plugin_mimo_tts"
     "astrbot_plugin_mimo_tts",
     "Ayleovelle",
     "基于小米MiMo-V2.5-TTS-VoiceClone引擎的语音克隆与文本转语音插件",
-    "0.0.3-beta",
+    "0.0.4-beta",
 )
 class MiMoTTSPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
@@ -143,7 +143,7 @@ class MiMoTTSPlugin(Star):
         self._client = None
 
     # ── auto-TTS: on_message ────────────────────────────────────
-    @filter.on_message(filter_type=filter.MessageType.ALL)
+    @filter.event_message_type(filter.EventMessageType.ALL)
     async def on_message_tts(self, event: AstrMessageEvent):
         """根据概率自动将 bot 回复转为语音。"""
         if not self.enabled:
