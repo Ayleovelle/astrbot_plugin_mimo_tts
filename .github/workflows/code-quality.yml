@@ -1,0 +1,36 @@
+name: Code Quality Badge
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install fuck-u-code
+        run: npm install -g eff-u-code
+
+      - name: Run code analysis
+        run: fuck-u-code analyze . -f json -o report.json || true
+
+      - name: Generate SVG badge
+        run: python3 .github/scripts/generate_badge.py
+
+      - name: Commit badge
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -f assets/code-quality.svg
+          git diff --cached --quiet || git commit -m "chore: update code quality badge [skip ci]"
+          git push || true
