@@ -8,13 +8,13 @@
   </mask>
   <g mask="url(#a)">
     <rect width="100" height="20" fill="#555"/>
-    <rect x="100" width="72" height="20" fill="#9f9f9f"/>
+    <rect x="100" width="72" height="20" fill="#4c1"/>
     <rect width="172" height="20" fill="url(#b)"/>
   </g>
   <g fill="#fff" text-anchor="middle" font-family="DejaVu Sans,Verdana,Geneva,sans-serif" font-size="11">
-    <text x="50" y="15" fill="#010101" fill-opacity=".3">Code Quality</text>
-    <text x="50" y="14">Code Quality</text>
-    <text x="136" y="15" fill="#010101" fill-opacity=".3">pending</text>
-    <text x="136" y="14">pending</text>
+    <text x="50.0" y="15" fill="#010101" fill-opacity=".3">Code Quality</text>
+    <text x="50.0" y="14">Code Quality</text>
+    <text x="136.0" y="15" fill="#010101" fill-opacity=".3">81/100</text>
+    <text x="136.0" y="14">81/100</text>
   </g>
 </svg>
