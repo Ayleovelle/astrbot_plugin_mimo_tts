@@ -8,8 +8,9 @@ from typing import Optional
 
 import aiohttp
 from astrbot.api.event import filter, AstrMessageEvent
-from astrbot.api.star import Context, Star
-from astrbot.api import logger, AstrBotConfig
+from astrbot.api.star import Context, Star, register
+from astrbot.api import logger
+from astrbot.core.config import AstrBotConfig
 
 from .voice_manager import VoiceManager
 from .mimo_client import MiMoClient
@@ -17,8 +18,14 @@ from .mimo_client import MiMoClient
 PLUGIN_DATA_DIR_NAME = "astrbot_plugin_mimo_tts"
 
 
+@register(
+    "astrbot_plugin_mimo_tts",
+    "Ayleovelle",
+    "基于小米MiMo-V2.5-TTS-VoiceClone引擎的语音克隆与文本转语音插件",
+    "0.0.2-beta",
+)
 class MiMoTTSPlugin(Star):
-    def __init__(self, context: Context, config: Optional[AstrBotConfig] = None):
+    def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
 
         data_base = Path(os.path.join(
@@ -27,7 +34,7 @@ class MiMoTTSPlugin(Star):
         ))
         data_base.mkdir(parents=True, exist_ok=True)
 
-        self._astrbot_config = config if config is not None else AstrBotConfig()
+        self._astrbot_config = config
         self.voice_mgr = VoiceManager(data_base)
         self._client: Optional[MiMoClient] = None
 
