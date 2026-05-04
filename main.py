@@ -31,7 +31,7 @@ PLUGIN_DATA_DIR_NAME = "astrbot_plugin_mimo_tts"
     "astrbot_plugin_mimo_tts",
     "Ayleovelle",
     "基于小米MiMo-V2.5-TTS-VoiceClone引擎的语音克隆与文本转语音插件",
-    "0.1.1-beta",
+    "0.1.2-beta",
 )
 class MiMoTTSPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
@@ -282,7 +282,7 @@ class MiMoTTSPlugin(Star):
     # ── pending clone state handlers ───────────────────────────
     async def _handle_waiting_audio(self, event: AstrMessageEvent, uk: str, pending: dict):
         """Handle message when waiting for audio in clone flow."""
-        # Step 1: 下载音频到服务端
+        # Step 1: 下载文件到服务端
         yield event.plain_result("下载中...")
         audio_bytes = await self._extract_audio(event)
         if not audio_bytes:
@@ -291,7 +291,7 @@ class MiMoTTSPlugin(Star):
         # Step 2: 保存到临时文件
         temp_path = None
         try:
-            temp_path = self._save_temp_audio(audio_bytes, ".wav")
+            temp_path = self._save_temp_audio(audio_bytes, ".tmp")
         except PermissionError:
             yield event.plain_result(
                 "文件写入失败：权限不足，无法将音频保存到服务端。\n\n"
@@ -308,19 +308,20 @@ class MiMoTTSPlugin(Star):
             yield event.plain_result(f"文件保存失败: {e}")
             return
 
-        # Step 3: 识别已下载的音频文件
+        # Step 3: 识别文件格式
         info = self._analyze_audio(audio_bytes)
         size_kb = info["size"] / 1024
-        duration_str = f"{info['duration']:.1f}秒" if info["duration"] else "未知"
 
+        # 非音频文件
         if info["format"] == "未知":
             self._cleanup_temp_file(temp_path)
             yield event.plain_result(
-                f"下载完成 ({size_kb:.1f} KB)，但未能识别音频格式。\n"
-                "请发送 WAV 或 MP3 格式的语音。"
+                f"下载完成 ({size_kb:.1f} KB)，但该文件不是音频文件。\n"
+                "请发送语音消息或音频文件（支持 WAV、MP3、OGG、FLAC、M4A 等格式）。"
             )
             return
 
+        duration_str = f"{info['duration']:.1f}秒" if info["duration"] else "未知"
         yield event.plain_result(
             f"下载完成 ({size_kb:.1f} KB)\n"
             f"识别成功\n"
@@ -329,6 +330,44 @@ class MiMoTTSPlugin(Star):
             f"  采样率: {info['sample_rate']} Hz\n"
             f"  声道数: {info['channels']}"
         )
+
+        # Step 4: 格式检查与转换
+        if not self._is_audio_format_supported(info["format"]):
+            ffmpeg = self._find_ffmpeg()
+            if not ffmpeg:
+                self._cleanup_temp_file(temp_path)
+                yield event.plain_result(
+                    f"格式 {info['format']} 不受 MiMo 模型支持，且未检测到 ffmpeg。\n"
+                    "请安装 ffmpeg 后重试，或直接发送 WAV/MP3 格式的音频。"
+                )
+                return
+
+            yield event.plain_result(f"格式转换中（{info['format']} → WAV）...")
+            try:
+                converted_path = await self._convert_to_wav(temp_path)
+                self._cleanup_temp_file(temp_path)
+                temp_path = converted_path
+                # Re-analyze converted file
+                with open(converted_path, "rb") as f:
+                    audio_bytes = f.read()
+                info = self._analyze_audio(audio_bytes)
+                yield event.plain_result(
+                    f"转换完成\n"
+                    f"  格式: {info['format']}\n"
+                    f"  大小: {info['size']/1024:.1f} KB\n"
+                    f"  采样率: {info['sample_rate']} Hz"
+                )
+            except FileNotFoundError:
+                self._cleanup_temp_file(temp_path)
+                yield event.plain_result(
+                    f"格式 {info['format']} 不受支持，且 ffmpeg 执行失败。\n"
+                    "请安装 ffmpeg 后重试，或直接发送 WAV/MP3 格式的音频。"
+                )
+                return
+            except RuntimeError as e:
+                self._cleanup_temp_file(temp_path)
+                yield event.plain_result(f"音频格式转换失败: {e}")
+                return
 
         # Update pending state
         pending["state"] = "confirming"
@@ -720,6 +759,67 @@ class MiMoTTSPlugin(Star):
             yield event.plain_result("已终止克隆流程。")
         else:
             yield event.plain_result("当前没有正在进行的克隆流程。")
+
+    # ── ffmpeg ─────────────────────────────────────────────────
+    _ffmpeg_path: Optional[str] = None  # cached path
+
+    @classmethod
+    def _find_ffmpeg(cls) -> Optional[str]:
+        """Auto-detect ffmpeg binary path. Searches in order:
+        1. Cached result
+        2. System PATH (shutil.which)
+        3. Common install directories
+        """
+        if cls._ffmpeg_path is not None:
+            return cls._ffmpeg_path
+
+        import shutil
+        # 1. System PATH
+        found = shutil.which("ffmpeg")
+        if found:
+            cls._ffmpeg_path = found
+            return found
+
+        # 2. Common paths
+        candidates = [
+            "/usr/bin/ffmpeg",
+            "/usr/local/bin/ffmpeg",
+            "/opt/homebrew/bin/ffmpeg",
+            "C:/ffmpeg/bin/ffmpeg.exe",
+            "C:/Program Files/ffmpeg/bin/ffmpeg.exe",
+        ]
+        for p in candidates:
+            if os.path.isfile(p):
+                cls._ffmpeg_path = p
+                return p
+
+        return None
+
+    @staticmethod
+    def _is_audio_format_supported(fmt: str) -> bool:
+        """Check if format is directly supported by MiMo-V2.5-TTS-VoiceClone."""
+        return fmt.lower() in ("wav", "mp3")
+
+    async def _convert_to_wav(self, input_path: str) -> str:
+        """Convert audio file to WAV (16kHz mono) using ffmpeg.
+        Returns path to converted WAV file. Raises FileNotFoundError if ffmpeg not found.
+        """
+        ffmpeg = self._find_ffmpeg()
+        if not ffmpeg:
+            raise FileNotFoundError("ffmpeg")
+
+        output_path = input_path.rsplit(".", 1)[0] + "_converted.wav"
+        proc = await asyncio.create_subprocess_exec(
+            ffmpeg, "-y", "-i", input_path,
+            "-ar", "16000", "-ac", "1", "-sample_fmt", "s16",
+            output_path,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, stderr = await proc.communicate()
+        if proc.returncode != 0:
+            raise RuntimeError(f"ffmpeg conversion failed: {stderr.decode()[:200]}")
+        return output_path
 
     # ── helpers ─────────────────────────────────────────────────
     @staticmethod
