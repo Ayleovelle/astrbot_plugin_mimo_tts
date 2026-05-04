@@ -8,58 +8,49 @@ REPORT_PATH = "report.json"
 BADGE_PATH = "assets/code-quality.svg"
 
 
-def get_color(score: int) -> str:
+def get_score_color(score: int) -> str:
     if score >= 80:
-        return "#4c1"      # green
+        return "#2E7D32"      # green
     elif score >= 60:
-        return "#97CA00"   # yellow-green
+        return "#558B2F"      # light green
     elif score >= 40:
-        return "#dfb317"   # yellow
+        return "#E65100"      # orange
     elif score >= 20:
-        return "#fe7d37"   # orange
-    return "#e05d44"       # red
-
-
-def get_label(score: int) -> str:
-    if score >= 80:
-        return "Excellent"
-    elif score >= 60:
-        return "Good"
-    elif score >= 40:
-        return "Fair"
-    elif score >= 20:
-        return "Poor"
-    return "Shit Code"
+        return "#BF360C"      # deep orange
+    return "#B71C1C"           # red
 
 
 def generate_svg(score: int) -> str:
-    color = get_color(score)
-    label = get_label(score)
-    score_text = f"{score}/100"
-    label_w = 100
-    score_w = 72
-    total_w = label_w + score_w
+    color = get_score_color(score)
 
-    return f'''<svg xmlns="http://www.w3.org/2000/svg" width="{total_w}" height="20">
-  <linearGradient id="b" x2="0" y2="100%">
-    <stop offset="0" stop-color="#bbb" stop-opacity=".1"/>
-    <stop offset="1" stop-opacity=".1"/>
-  </linearGradient>
-  <mask id="a">
-    <rect width="{total_w}" height="20" rx="3" fill="#fff"/>
-  </mask>
-  <g mask="url(#a)">
-    <rect width="{label_w}" height="20" fill="#555"/>
-    <rect x="{label_w}" width="{score_w}" height="20" fill="{color}"/>
-    <rect width="{total_w}" height="20" fill="url(#b)"/>
+    return f'''<svg xmlns="http://www.w3.org/2000/svg" width="250" height="54" viewBox="0 0 250 54">
+  <defs>
+    <style type="text/css">
+      .text-bold {{ font-family: 'Helvetica Bold', Helvetica, Arial, sans-serif; font-weight: bold; }}
+      .text-regular {{ font-family: Helvetica, Arial, sans-serif; }}
+      .emoji {{ font-family: "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji"; }}
+    </style>
+  </defs>
+
+  <!-- 背景卡片 -->
+  <rect x="0.5" y="0.5" width="249" height="53" rx="10" fill="#FFFFFF" stroke="#E0C9A6" stroke-width="1"/>
+
+  <!-- 装饰图标 -->
+  <text x="28" y="38" font-size="30" class="emoji" text-anchor="middle">\U0001f4a9</text>
+
+  <!-- 品牌文字 -->
+  <g fill="#5D4037" class="text-bold">
+    <text x="53" y="21" font-size="9">CODE SMELL BY</text>
+    <text x="52" y="41" font-size="21">Fuck-U-Code</text>
   </g>
-  <g fill="#fff" text-anchor="middle" font-family="DejaVu Sans,Verdana,Geneva,sans-serif" font-size="11">
-    <text x="{label_w / 2}" y="15" fill="#010101" fill-opacity=".3">Code Quality</text>
-    <text x="{label_w / 2}" y="14">Code Quality</text>
-    <text x="{label_w + score_w / 2}" y="15" fill="#010101" fill-opacity=".3">{score_text}</text>
-    <text x="{label_w + score_w / 2}" y="14">{score_text}</text>
+
+  <!-- 分数指示器 -->
+  <g transform="translate(185, 13)" fill="{color}">
+    <text x="35" y="10" font-size="9" class="text-regular" text-anchor="middle">SCORE</text>
+    <text x="35" y="28" font-size="18" class="text-bold" text-anchor="middle">{score}</text>
   </g>
-</svg>'''
+</svg>
+'''
 
 
 def main():
