@@ -12,10 +12,14 @@ from typing import Optional
 
 import aiohttp
 from astrbot.api.event import filter, AstrMessageEvent
-from astrbot.api.message_components import Record
 from astrbot.api.star import Context, Star, register
 from astrbot.api import logger
 from astrbot.core.config import AstrBotConfig
+
+try:
+    from astrbot.api.message_components import Record
+except ImportError:
+    Record = None
 
 from .voice_manager import VoiceManager
 from .mimo_client import MiMoClient
@@ -27,7 +31,7 @@ PLUGIN_DATA_DIR_NAME = "astrbot_plugin_mimo_tts"
     "astrbot_plugin_mimo_tts",
     "Ayleovelle",
     "基于小米MiMo-V2.5-TTS-VoiceClone引擎的语音克隆与文本转语音插件",
-    "0.1.0-beta",
+    "0.1.1-beta",
 )
 class MiMoTTSPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
@@ -186,7 +190,7 @@ class MiMoTTSPlugin(Star):
         uk = self._user_key(event)
         pending = self._pending_clones.get(uk)
         if pending:
-            event.stop_event()  # 阻止消息传播到 LLM
+            event.should_call_llm(False)  # 仅阻止 LLM 处理，不影响命令和文件接收
             if is_clone_end:
                 del self._pending_clones[uk]
                 yield event.plain_result("已终止克隆流程。")
@@ -766,20 +770,34 @@ class MiMoTTSPlugin(Star):
         Primary: use AstrBot's Record component (works with NapCat/aiocqhttp).
         Fallback: scan message segments for audio URL and download via HTTP.
         """
-        msg_comps = getattr(getattr(event, "message_obj", None), "message", None)
+        # Path 1: AstrBot Record component
+        msg_obj = getattr(event, "message_obj", None)
+        msg_comps = getattr(msg_obj, "message", None) if msg_obj else None
         if msg_comps:
             for comp in msg_comps:
-                if isinstance(comp, Record):
+                is_record = (Record and isinstance(comp, Record)) or hasattr(comp, "convert_to_file_path")
+                if is_record:
+                    logger.info(f"Found Record component: file={getattr(comp,'file','')}, url={getattr(comp,'url','')}")
+                    # Try convert_to_file_path first (NapCat get_record API)
                     try:
                         local_path = await comp.convert_to_file_path()
+                        logger.info(f"convert_to_file_path result: {local_path}")
                         if local_path and os.path.exists(local_path):
                             with open(local_path, "rb") as f:
                                 return f.read()
                     except Exception as e:
                         logger.warning(f"Record.convert_to_file_path failed: {e}")
-                    # Fallback: try URL directly
-                    url = getattr(comp, "url", None) or getattr(comp, "file", None)
-                    if url and url.startswith("http"):
+                    # Try comp.file as local path directly
+                    file_ref = getattr(comp, "file", None)
+                    if file_ref and os.path.isfile(str(file_ref)):
+                        try:
+                            with open(str(file_ref), "rb") as f:
+                                return f.read()
+                        except Exception as e:
+                            logger.warning(f"Failed to read local file {file_ref}: {e}")
+                    # Try comp.url or comp.file as HTTP URL
+                    url = getattr(comp, "url", None) or file_ref
+                    if url and isinstance(url, str) and url.startswith("http"):
                         try:
                             async with aiohttp.ClientSession() as session:
                                 async with session.get(url) as resp:
@@ -788,7 +806,7 @@ class MiMoTTSPlugin(Star):
                         except Exception:
                             logger.warning(f"Failed to download record from {url}")
 
-        # Legacy fallback: scan for dict-style attachments
+        # Path 2: Legacy dict-style attachments
         attachments = getattr(event, "attachments", None)
         if attachments:
             for att in attachments:
@@ -809,6 +827,7 @@ class MiMoTTSPlugin(Star):
                 except Exception:
                     logger.warning(f"Failed to download attachment from {url}")
 
+        logger.warning("No audio Record or attachment found in message")
         return None
 
     def _save_temp_audio(self, audio_bytes: bytes, suffix: str) -> str:
