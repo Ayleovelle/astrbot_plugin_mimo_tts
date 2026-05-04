@@ -1,134 +1,184 @@
-# MiMo VoiceClone TTS — AstrBot 语音克隆插件
+<div align="center">
 
-基于 **小米 MiMo-V2.5-TTS-VoiceClone** 引擎的 AstrBot 文本转语音插件。只需几秒参考音频即可克隆任意音色，让你的聊天机器人用自定义声音"开口说话"。
+![Python](https://img.shields.io/badge/Python-3.10+-blue?logo=python)
+![AstrBot](https://img.shields.io/badge/AstrBot-%E2%89%A54.16-green)
+![Version](https://img.shields.io/badge/version-1.0.0-orange)
+![License](https://img.shields.io/badge/license-MIT-blue)
+![Status](https://img.shields.io/badge/状态-活跃开发中-brightgreen)
 
-## 功能特性
+</div>
 
-- **一键克隆音色** — 发送一段 3-10 秒的语音即可克隆，无需训练
-- **多音色管理** — 支持保存、切换、删除多个克隆音色
-- **风格控制** — 支持情绪（开心/温柔/疲惫）和方言（东北话/粤语/四川话）等
-- **多格式输出** — 支持 WAV / MP3 / PCM16 音频格式
-- **跨平台** — 兼容 QQ、Telegram、Discord、KOOK、钉钉、飞书等 10+ 平台
+# 🎤 MiMo VoiceClone TTS
 
-## 安装
+基于 **小米 MiMo-V2.5-TTS-VoiceClone** 引擎的 AstrBot 语音克隆插件。
+
+只需 **几秒参考音频** 即可克隆任意音色，让你的聊天机器人用自定义声音「开口说话」。
+
+---
+
+## ✨ 功能特性
+
+| 特性 | 说明 |
+|------|------|
+| 🎯 **一键克隆** | 发送 3-10 秒语音即可克隆，无需训练、无需等待 |
+| 🗂️ **多音色管理** | 支持保存、切换、删除多个音色，随时更换 |
+| 🎭 **风格控制** | 支持情绪描述（开心/温柔/疲惫）与方言（东北话/粤语/四川话） |
+| 🔊 **多格式输出** | WAV / MP3 / PCM16 自由切换 |
+| 🌐 **跨平台兼容** | QQ、Telegram、Discord、KOOK、钉钉、飞书等 10+ 平台 |
+| 📦 **轻量去重** | SHA256 指纹去重，重复音频自动识别 |
+
+---
+
+## 📂 项目结构
+
+```
+astrbot_plugin_mimo_tts/
+├── main.py                # 插件入口，7 个命令处理器
+├── mimo_client.py         # MiMo API 客户端（OpenAI SDK 封装）
+├── voice_manager.py       # 音色 CRUD + 本地缓存
+├── config_manager.py      # 配置持久化（Key / 格式 / 风格）
+├── metadata.yaml          # AstrBot 插件元数据
+├── requirements.txt       # Python 依赖
+├── README.md              # 项目文档
+└── .gitignore
+```
+
+---
+
+## 🚀 快速开始
 
 ### 1. 获取 API Key
 
-前往 [小米 MiMo 开放平台](https://platform.xiaomimimo.com/#/console/api-keys) 注册并获取 API Key（公测期间免费）。
+前往 [小米 MiMo 开放平台](https://platform.xiaomimimo.com/#/console/api-keys) 注册获取 API Key。
+
+> 公测期间 **免费**，无需付费即可使用。
 
 ### 2. 安装插件
-
-将本仓库克隆到 AstrBot 的插件目录：
 
 ```bash
 cd AstrBot/data/plugins/
 git clone https://github.com/Ayleovelle/astrbot_plugin_mimo_tts.git
 ```
 
-然后在 AstrBot WebUI → 插件管理 → 加载插件。
+然后在 AstrBot **WebUI → 插件管理** 中加载插件。
 
 ### 3. 配置 API Key
 
-两种方式任选其一：
-
-**方式一：环境变量**
 ```bash
+# 方式一：环境变量
 export MIMO_API_KEY="your_api_key_here"
+
+# 方式二：聊天框命令
+/mimo_config apikey <你的Key>
 ```
 
-**方式二：命令配置**
-```
-/mimo_config apikey <你的API Key>
-```
-
-## 使用方法
-
-### 克隆音色
-
-发送一段语音消息（清唱/朗读均可，3-10 秒），同时附上命令：
+### 4. 开始使用
 
 ```
-/mimo_clone 我的声音
+/mimo_clone 我的声音          ← 发送语音消息克隆音色
+/mimo_tts 你好世界             ← 用克隆音色合成语音
 ```
 
-克隆成功后会返回一段测试语音，验证效果。
+---
 
-### 文字转语音
+## 📖 命令参考
 
+### 🎯 核心功能
+
+| 命令 | 说明 | 示例 |
+|------|------|------|
+| `/mimo_clone <名称>` | 克隆新音色（需附带音频） | `/mimo_clone 小明的声音` |
+| `/mimo_tts <文本>` | 将文本转为语音 | `/mimo_tts 今天天气真好` |
+
+### 🗂️ 音色管理
+
+| 命令 | 说明 | 示例 |
+|------|------|------|
+| `/mimo_voices` | 列出所有已克隆的音色 | `/mimo_voices` |
+| `/mimo_set_voice <名称>` | 切换当前使用的音色 | `/mimo_set_voice 小美` |
+| `/mimo_del_voice <名称>` | 删除指定音色 | `/mimo_del_voice 旧音色` |
+
+### 🎭 风格与配置
+
+| 命令 | 说明 | 示例 |
+|------|------|------|
+| `/mimo_style <描述>` | 设置情绪/方言风格 | `/mimo_style 东北话` |
+| `/mimo_style none` | 清除风格设置 | `/mimo_style none` |
+| `/mimo_config` | 查看当前配置 | `/mimo_config` |
+| `/mimo_config apikey <Key>` | 更换 API Key | `/mimo_config apikey sk-xxx` |
+| `/mimo_config format <fmt>` | 切换音频格式 | `/mimo_config format mp3` |
+
+---
+
+## 🔄 工作流程
+
+```mermaid
+graph LR
+    A[用户音频] --> B[SHA256 去重]
+    B --> C[本地缓存]
+    C --> D[base64 编码]
+    D --> E[MiMo API]
+    E --> F[合成语音]
+    F --> G[返回音频消息]
 ```
-/mimo_tts 你好，这是一段用克隆音色合成的语音
-```
 
-### 设置语音风格
+---
 
-```
-/mimo_style 开心          # 愉快的情绪
-/mimo_style 东北话        # 东北方言
-/mimo_style 粤语          # 粤语
-/mimo_style 温柔但疲惫     # 细腻的情绪描述
-/mimo_style none          # 清除风格
-```
+## 🛠 技术栈
 
-### 管理音色
-
-```
-/mimo_voices              # 查看已克隆的音色列表
-/mimo_set_voice 我的声音   # 切换音色
-/mimo_del_voice 旧音色     # 删除音色
-```
-
-### 查看配置
-
-```
-/mimo_config                          # 查看当前配置
-/mimo_config apikey <新Key>           # 更换 API Key
-/mimo_config format <wav|mp3|pcm16>   # 切换音频格式
-```
-
-## 命令速查
-
-| 命令 | 功能 |
+| 类别 | 技术 |
 |------|------|
-| `/mimo_tts <文本>` | 将文本转为语音 |
-| `/mimo_clone <名称>` | 从音频附件克隆新音色 |
-| `/mimo_voices` | 列出所有已克隆的音色 |
-| `/mimo_set_voice <名称>` | 切换当前音色 |
-| `/mimo_del_voice <名称>` | 删除指定音色 |
-| `/mimo_style <风格>` | 设置情绪/方言风格 |
-| `/mimo_config [key] [value]` | 查看/修改配置 |
+| 语言 | Python 3.10+ |
+| 框架 | AstrBot >= 4.16 |
+| API | Xiaomi MiMo-V2.5-TTS-VoiceClone |
+| HTTP | OpenAI SDK (`openai>=1.30`) |
+| 异步 | aiohttp >= 3.9 |
+| 音频 | WAV / MP3 / PCM16（24kHz） |
 
-## 工作原理
+---
 
-```
-用户音频 → 本地缓存(去重) → base64编码 → MiMo API → 合成语音 → 返回音频消息
-```
+## ❓ 常见问题
 
-每次 TTS 请求将缓存的参考音频随文本一起发送给 MiMo API，API 在目标音色下合成语音并返回。
+<details>
+<summary><b>支持哪些音频格式作为参考？</b></summary>
 
-## 常见问题
+WAV、MP3 均可，建议 3-10 秒、发音清晰即可。支持语音消息和音频文件两种上传方式。
+</details>
 
-**Q: 支持哪些音频格式作为参考？**
-WAV、MP3 均可，建议 3-10 秒，发音清晰即可。
+<details>
+<summary><b>需要付费吗？</b></summary>
 
-**Q: 需要付费吗？**
-MiMo API 当前处于公测期，免费使用。后续收费政策请关注官方公告。
+MiMo API 当前处于 **公测期免费**，后续收费政策请关注 [小米 MiMo 开放平台](https://platform.xiaomimimo.com) 公告。
+</details>
 
-**Q: 参考音频会占用多少空间？**
-每个音色约 100-500KB，本地存储于插件 data 目录下的 `voices/` 文件夹。
+<details>
+<summary><b>克隆的音色保存在哪里？</b></summary>
 
-**Q: 能在多个平台同时使用吗？**
-可以，AstrBot 支持的所有平台均已适配。
+参考音频缓存于插件 `data/voices/` 目录，每个音色约 100-500KB。元数据索引存储在 `mimo_tts_voices.json`。
+</details>
 
-**Q: 支持流式输出吗？**
+<details>
+<summary><b>支持流式输出吗？</b></summary>
+
 当前版本为非流式合成。后续版本计划支持 PCM16 流式输出以降低首字延迟。
+</details>
 
-## 依赖
+<details>
+<summary><b>为什么提示「未检测到音频附件」？</b></summary>
 
-- Python >= 3.10
-- AstrBot >= 4.16
-- openai >= 1.30.0
-- aiohttp >= 3.9.0
+请在发送 `/mimo_clone` 命令的**同一条消息中**附带语音或音频文件。不同平台的附件获取方式存在差异，如遇问题请提 Issue。
+</details>
 
-## 许可
+---
 
-MIT License
+## 📄 许可
+
+MIT License © 2026 Ayleovelle
+
+---
+
+<div align="center">
+
+[⭐ Star](https://github.com/Ayleovelle/astrbot_plugin_mimo_tts) · [🐛 Issue](https://github.com/Ayleovelle/astrbot_plugin_mimo_tts/issues) · [🔌 AstrBot 插件](https://docs.astrbot.app/dev/star/plugin-new.html)
+
+</div>
