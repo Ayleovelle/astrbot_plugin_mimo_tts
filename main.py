@@ -12,6 +12,7 @@ from typing import Optional
 
 import aiohttp
 from astrbot.api.event import filter, AstrMessageEvent
+from astrbot.api.message_components import Record
 from astrbot.api.star import Context, Star, register
 from astrbot.api import logger
 from astrbot.core.config import AstrBotConfig
@@ -26,7 +27,7 @@ PLUGIN_DATA_DIR_NAME = "astrbot_plugin_mimo_tts"
     "astrbot_plugin_mimo_tts",
     "Ayleovelle",
     "基于小米MiMo-V2.5-TTS-VoiceClone引擎的语音克隆与文本转语音插件",
-    "0.0.9-beta",
+    "0.1.0-beta",
 )
 class MiMoTTSPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
@@ -277,36 +278,16 @@ class MiMoTTSPlugin(Star):
     # ── pending clone state handlers ───────────────────────────
     async def _handle_waiting_audio(self, event: AstrMessageEvent, uk: str, pending: dict):
         """Handle message when waiting for audio in clone flow."""
-        # Step 1: 识别音频
-        yield event.plain_result("识别中...")
+        # Step 1: 下载音频到服务端
+        yield event.plain_result("下载中...")
         audio_bytes = await self._extract_audio(event)
         if not audio_bytes:
             return  # Not an audio message, ignore
 
-        info = self._analyze_audio(audio_bytes)
-        if info["format"] == "未知":
-            yield event.plain_result("未能识别为有效的音频文件，请发送 WAV 或 MP3 格式的语音。")
-            return
-
-        size_kb = info["size"] / 1024
-        duration_str = f"{info['duration']:.1f}秒" if info["duration"] else "未知"
-        yield event.plain_result(
-            f"识别成功\n"
-            f"  格式: {info['format']}\n"
-            f"  大小: {size_kb:.1f} KB\n"
-            f"  时长: {duration_str}\n"
-            f"  采样率: {info['sample_rate']} Hz\n"
-            f"  声道数: {info['channels']}"
-        )
-
-        # Step 2: 下载到服务端临时文件
-        yield event.plain_result("下载中...")
+        # Step 2: 保存到临时文件
         temp_path = None
         try:
-            ext = info["format"].split("/")[0].lower()
-            if ext not in ("wav", "mp3", "ogg", "flac", "m4a"):
-                ext = "wav"
-            temp_path = self._save_temp_audio(audio_bytes, f".{ext}")
+            temp_path = self._save_temp_audio(audio_bytes, ".wav")
         except PermissionError:
             yield event.plain_result(
                 "文件写入失败：权限不足，无法将音频保存到服务端。\n\n"
@@ -323,7 +304,27 @@ class MiMoTTSPlugin(Star):
             yield event.plain_result(f"文件保存失败: {e}")
             return
 
-        yield event.plain_result(f"下载完成 ({size_kb:.1f} KB)")
+        # Step 3: 识别已下载的音频文件
+        info = self._analyze_audio(audio_bytes)
+        size_kb = info["size"] / 1024
+        duration_str = f"{info['duration']:.1f}秒" if info["duration"] else "未知"
+
+        if info["format"] == "未知":
+            self._cleanup_temp_file(temp_path)
+            yield event.plain_result(
+                f"下载完成 ({size_kb:.1f} KB)，但未能识别音频格式。\n"
+                "请发送 WAV 或 MP3 格式的语音。"
+            )
+            return
+
+        yield event.plain_result(
+            f"下载完成 ({size_kb:.1f} KB)\n"
+            f"识别成功\n"
+            f"  格式: {info['format']}\n"
+            f"  时长: {duration_str}\n"
+            f"  采样率: {info['sample_rate']} Hz\n"
+            f"  声道数: {info['channels']}"
+        )
 
         # Update pending state
         pending["state"] = "confirming"
@@ -760,36 +761,53 @@ class MiMoTTSPlugin(Star):
         return result
 
     async def _extract_audio(self, event: AstrMessageEvent) -> Optional[bytes]:
-        """Extract audio bytes from a message attachment if present."""
+        """Extract audio bytes from a message.
+
+        Primary: use AstrBot's Record component (works with NapCat/aiocqhttp).
+        Fallback: scan message segments for audio URL and download via HTTP.
+        """
+        msg_comps = getattr(getattr(event, "message_obj", None), "message", None)
+        if msg_comps:
+            for comp in msg_comps:
+                if isinstance(comp, Record):
+                    try:
+                        local_path = await comp.convert_to_file_path()
+                        if local_path and os.path.exists(local_path):
+                            with open(local_path, "rb") as f:
+                                return f.read()
+                    except Exception as e:
+                        logger.warning(f"Record.convert_to_file_path failed: {e}")
+                    # Fallback: try URL directly
+                    url = getattr(comp, "url", None) or getattr(comp, "file", None)
+                    if url and url.startswith("http"):
+                        try:
+                            async with aiohttp.ClientSession() as session:
+                                async with session.get(url) as resp:
+                                    if resp.status == 200:
+                                        return await resp.read()
+                        except Exception:
+                            logger.warning(f"Failed to download record from {url}")
+
+        # Legacy fallback: scan for dict-style attachments
         attachments = getattr(event, "attachments", None)
-        if not attachments:
-            attachments = getattr(event, "message", None)
-            if hasattr(attachments, "attachments"):
-                attachments = attachments.attachments
-
-        if not attachments:
-            return None
-
-        for att in attachments:
-            url = None
-            if isinstance(att, dict):
-                url = att.get("url") or att.get("data")
-                att_type = att.get("type", "")
-                if "audio" not in att_type and "voice" not in att_type:
+        if attachments:
+            for att in attachments:
+                url = None
+                if isinstance(att, dict):
+                    url = att.get("url") or att.get("data")
+                    if isinstance(url, dict):
+                        url = url.get("url")
+                elif hasattr(att, "url"):
+                    url = att.url
+                if not url or not isinstance(url, str) or not url.startswith("http"):
                     continue
-            elif hasattr(att, "url"):
-                url = att.url
-
-            if not url:
-                continue
-
-            try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(url) as resp:
-                        if resp.status == 200:
-                            return await resp.read()
-            except Exception:
-                logger.warning(f"Failed to download attachment from {url}")
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(url) as resp:
+                            if resp.status == 200:
+                                return await resp.read()
+                except Exception:
+                    logger.warning(f"Failed to download attachment from {url}")
 
         return None
 
