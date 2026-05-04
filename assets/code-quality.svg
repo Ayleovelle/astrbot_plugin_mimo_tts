@@ -20,8 +20,8 @@
   </g>
 
   <!-- 分数指示器 -->
-  <g transform="translate(185, 13)" fill="#2E7D32">
+  <g transform="translate(185, 13)" fill="#558B2F">
     <text x="35" y="10" font-size="9" class="text-regular" text-anchor="middle">SCORE</text>
-    <text x="35" y="28" font-size="18" class="text-bold" text-anchor="middle">82</text>
+    <text x="35" y="28" font-size="18" class="text-bold" text-anchor="middle">79</text>
   </g>
 </svg>
