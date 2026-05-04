@@ -2,7 +2,7 @@ name: astrbot_plugin_mimo_tts
 display_name: MiMo语音克隆TTS
 author: pidan
 description: 基于小米MiMo-V2.5-TTS-VoiceClone引擎的语音克隆与文本转语音插件。支持数秒音频克隆音色，让你的聊天机器人用自定义声音"开口说话"。
-version: "0.0.8-beta"
+version: "0.0.9-beta"
 
 repo: https://github.com/Ayleovelle/astrbot_plugin_mimo_tts
 
