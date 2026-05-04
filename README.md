@@ -3,7 +3,7 @@
 ![Code Quality](assets/code-quality.svg)
 ![Python](https://img.shields.io/badge/Python-3.10+-blue?logo=python)
 ![AstrBot](https://img.shields.io/badge/AstrBot-%E2%89%A54.16-green)
-![Version](https://img.shields.io/badge/version-0.0.6--beta-orange)
+![Version](https://img.shields.io/badge/version-0.1.0--beta-orange)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![Status](https://img.shields.io/badge/状态-活跃开发中-brightgreen)
 
@@ -22,7 +22,10 @@
 | 特性 | 说明 |
 |------|------|
 | 🎯 **一键克隆** | 发送 3-10 秒语音即可克隆，无需训练、无需等待 |
+| 📡 **智能下载** | 通过 NapCat `get_record` API 下载音频，自动格式转换 |
+| 📋 **分步反馈** | 克隆全程实时告知状态：下载中 → 识别成功 → 克隆中 → 已完成 |
 | 🗂️ **多音色管理** | 支持保存、切换、删除多个音色，随时更换 |
+| 👥 **管理员管理** | WebUI 可配置管理员用户列表，权限与系统管理员叠加 |
 | 🎭 **风格控制** | 支持情绪描述（开心/温柔/疲惫）与方言（东北话/粤语/四川话） |
 | 🔊 **多格式输出** | WAV / MP3 / PCM16 自由切换 |
 | 🌐 **跨平台兼容** | QQ、Telegram、Discord、KOOK、钉钉、飞书等 10+ 平台 |
@@ -34,7 +37,7 @@
 
 ```
 astrbot_plugin_mimo_tts/
-├── main.py                # 插件入口，7 个命令处理器
+├── main.py                # 插件入口，8 个命令处理器
 ├── mimo_client.py         # MiMo API 客户端（OpenAI SDK 封装）
 ├── voice_manager.py       # 音色 CRUD + 本地缓存
 ├── metadata.yaml          # AstrBot 插件元数据
@@ -78,6 +81,7 @@ export MIMO_API_KEY="your_api_key_here"
 ```
 /mimo_clone 我的声音          ← 发送命令
 （60秒内发送语音消息）         ← 发送参考音频
+                              ← 插件：下载中... → 识别成功 → 克隆中... → 已完成！
 确认                          ← 确认克隆
 /mimo_tts 你好世界             ← 用克隆音色合成语音
 ```
@@ -91,6 +95,7 @@ export MIMO_API_KEY="your_api_key_here"
 | 命令 | 说明 | 示例 |
 |------|------|------|
 | `/mimo_clone <名称>` | 开始克隆流程（随后发送音频） | `/mimo_clone 小明的声音` |
+| `/mimo_clone_end` | 终止当前克隆流程 | `/mimo_clone_end` |
 | `/mimo_tts <文本>` | 将文本转为语音 | `/mimo_tts 今天天气真好` |
 
 ### 🗂️ 音色管理
@@ -114,16 +119,19 @@ export MIMO_API_KEY="your_api_key_here"
 
 ---
 
-## 🔄 工作流程
+## 🔄 克隆流程
 
 ```mermaid
 graph LR
-    A[用户音频] --> B[SHA256 去重]
-    B --> C[本地缓存]
-    C --> D[base64 编码]
-    D --> E[MiMo API]
-    E --> F[合成语音]
-    F --> G[返回音频消息]
+    A[用户发送音频] --> B[NapCat 下载]
+    B --> C[保存临时文件]
+    C --> D[格式识别]
+    D --> E[SHA256 去重]
+    E --> F[本地缓存]
+    F --> G[base64 编码]
+    G --> H[MiMo API]
+    H --> I[返回音频]
+    I --> J[清理临时文件]
 ```
 
 ---
@@ -172,7 +180,15 @@ MiMo API 当前处于 **公测期免费**，后续收费政策请关注 [小米 
 
 1. 发送 `/mimo_clone <音色名>`
 2. 在 60 秒内发送语音消息或音频文件（3-10秒即可）
-3. 收到确认提示后回复「确认」完成克隆，或「取消」放弃
+3. 插件自动下载音频 → 识别格式 → 显示文件信息（格式/大小/时长/采样率）
+4. 回复「确认」完成克隆，或「取消」/`/mimo_clone_end` 放弃
+5. 克隆完成后自动清理临时文件
+</details>
+
+<details>
+<summary><b>如何添加管理员？</b></summary>
+
+在 AstrBot WebUI → 插件配置 → 管理员用户列表中，每行填入一个用户 ID 即可。这些用户可以使用 `/mimo_my_voice` 和 `/mimo_voice_delete` 命令，与系统管理员权限叠加。
 </details>
 
 ---
