@@ -45,6 +45,63 @@ class MiMoTTSPlugin(Star):
                 return env_val
         return default
 
+    async def _get_style(self, event: AstrMessageEvent = None) -> str | None:
+        """Get the TTS voice style, auto-detected from persona when available.
+
+        Priority:
+        1. Manually configured default_style (if set)
+        2. Current persona's system prompt (auto-detected)
+        3. None (MiMo default)
+        """
+        # 1. Manual override always wins
+        manual = self._cfg("default_style", "")
+        if manual:
+            return manual
+
+        # 2. Auto-detect from persona
+        if event is not None:
+            persona_prompt = await self._get_persona_style(event)
+            if persona_prompt:
+                return persona_prompt
+
+        return None
+
+    async def _get_persona_style(self, event: AstrMessageEvent) -> str | None:
+        """Extract voice style hint from the current session's persona."""
+        try:
+            pm = getattr(self.context, "persona_manager", None)
+            if pm is None:
+                return None
+
+            # Get umo (unified message origin) from the event
+            umo = getattr(event, "umo", None) or getattr(event, "session_id", None)
+            if not umo:
+                umo_obj = getattr(event, "unified_msg_origin", None)
+                if umo_obj:
+                    umo = str(umo_obj)
+
+            if not umo:
+                return None
+
+            persona = await pm.get_default_persona_v3(umo)
+            if persona is None:
+                return None
+
+            prompt = persona.get("prompt", "")
+            if not prompt:
+                return None
+
+            # The system prompt can be very long; MiMo style works best
+            # with concise descriptions. Take the first sentence or ~80 chars.
+            first_sentence = prompt.split("。")[0].split("\n")[0].strip()
+            if len(first_sentence) > 120:
+                first_sentence = first_sentence[:120]
+            return first_sentence
+
+        except Exception:
+            logger.debug(f"Failed to get persona style: {traceback.format_exc()}")
+            return None
+
     def _cfg_int(self, key: str, default: int = 0) -> int:
         try:
             return int(self._cfg(key, default))
@@ -141,8 +198,8 @@ class MiMoTTSPlugin(Star):
             if not ref_b64:
                 return
 
-            style = self._cfg("default_style", "") or None
             fmt = self._cfg("audio_format", "wav")
+            style = await self._get_style(event)
 
             audio_bytes = await self.client.synthesize(
                 text=text,
@@ -189,8 +246,8 @@ class MiMoTTSPlugin(Star):
                 yield event.plain_result(f"音色「{voice_name}」的参考音频丢失，请重新克隆。")
                 return
 
-            style = self._cfg("default_style", "") or None
             fmt = self._cfg("audio_format", "wav")
+            style = await self._get_style(event)
 
             yield event.plain_result(f"正在使用音色「{voice_name}」合成语音...")
 
@@ -392,7 +449,7 @@ class MiMoTTSPlugin(Star):
             "当前配置:\n"
             f"  API Key: {masked}\n"
             f"  当前音色: {self.voice_mgr.current_voice or '(未设置)'}\n"
-            f"  语音风格: {self._cfg('default_style', '') or '(未设置)'}\n"
+            f"  语音风格: {self._cfg('default_style', '') or '(自动跟随人格)'}\n"
             f"  音频格式: {self._cfg('audio_format', 'wav')}\n"
             f"  TTS 概率: {self._cfg_int('tts_probability', 100)}%\n"
             f"  字数限制: {self._cfg_int('min_tts_chars', 2)}-{self._cfg_int('max_tts_chars', 200)}\n"
@@ -434,7 +491,7 @@ class MiMoTTSPlugin(Star):
             audio_bytes = await self.client.synthesize(
                 text=text,
                 reference_audio_b64=ref_b64,
-                style=self._cfg("default_style", "") or None,
+                style=await self._get_style(),
                 audio_format=self._cfg("audio_format", "wav"),
             )
             return f"已生成 {len(audio_bytes)} bytes 的语音数据"

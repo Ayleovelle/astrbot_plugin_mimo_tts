@@ -14,8 +14,8 @@
   },
   "default_style": {
     "type": "string",
-    "description": "默认语音风格",
-    "hint": "情绪描述（如 开心、温柔但疲惫）或方言（如 东北话、粤语），留空为默认",
+    "description": "语音风格（手动覆盖）",
+    "hint": "留空则自动读取当前人格设定作为风格；填写后强制使用指定风格（如 开心、东北话、温柔但疲惫）",
     "default": ""
   },
   "audio_format": {
