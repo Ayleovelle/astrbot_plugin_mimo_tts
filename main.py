@@ -26,7 +26,7 @@ PLUGIN_DATA_DIR_NAME = "astrbot_plugin_mimo_tts"
     "astrbot_plugin_mimo_tts",
     "Ayleovelle",
     "基于小米MiMo-V2.5-TTS-VoiceClone引擎的语音克隆与文本转语音插件",
-    "0.0.8-beta",
+    "0.0.9-beta",
 )
 class MiMoTTSPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
@@ -277,24 +277,62 @@ class MiMoTTSPlugin(Star):
     # ── pending clone state handlers ───────────────────────────
     async def _handle_waiting_audio(self, event: AstrMessageEvent, uk: str, pending: dict):
         """Handle message when waiting for audio in clone flow."""
+        # Step 1: 识别音频
+        yield event.plain_result("识别中...")
         audio_bytes = await self._extract_audio(event)
         if not audio_bytes:
             return  # Not an audio message, ignore
-        pending["state"] = "confirming"
-        pending["audio_bytes"] = audio_bytes
-        pending["expire"] = time.time() + 60
-        name = pending["name"]
 
         info = self._analyze_audio(audio_bytes)
+        if info["format"] == "未知":
+            yield event.plain_result("未能识别为有效的音频文件，请发送 WAV 或 MP3 格式的语音。")
+            return
+
         size_kb = info["size"] / 1024
         duration_str = f"{info['duration']:.1f}秒" if info["duration"] else "未知"
-        return event.plain_result(
-            f"已收到音频文件，识别结果：\n"
+        yield event.plain_result(
+            f"识别成功\n"
             f"  格式: {info['format']}\n"
             f"  大小: {size_kb:.1f} KB\n"
             f"  时长: {duration_str}\n"
             f"  采样率: {info['sample_rate']} Hz\n"
-            f"  声道数: {info['channels']}\n"
+            f"  声道数: {info['channels']}"
+        )
+
+        # Step 2: 下载到服务端临时文件
+        yield event.plain_result("下载中...")
+        temp_path = None
+        try:
+            ext = info["format"].split("/")[0].lower()
+            if ext not in ("wav", "mp3", "ogg", "flac", "m4a"):
+                ext = "wav"
+            temp_path = self._save_temp_audio(audio_bytes, f".{ext}")
+        except PermissionError:
+            yield event.plain_result(
+                "文件写入失败：权限不足，无法将音频保存到服务端。\n\n"
+                "这通常是因为 AstrBot 运行在受限环境（如 Docker 容器或沙箱）中。\n"
+                "请检查以下事项：\n"
+                "  1. 确认插件 data 目录有写入权限\n"
+                "  2. 若使用 Docker，确保挂载了可写卷\n"
+                "  3. 如有必要，可尝试以管理员权限运行 AstrBot\n\n"
+                "警告：以管理员/root 权限运行存在安全风险，请谨慎操作。"
+            )
+            return
+        except OSError as e:
+            logger.error(f"Failed to save temp audio: {e}")
+            yield event.plain_result(f"文件保存失败: {e}")
+            return
+
+        yield event.plain_result(f"下载完成 ({size_kb:.1f} KB)")
+
+        # Update pending state
+        pending["state"] = "confirming"
+        pending["temp_path"] = temp_path
+        pending["audio_info"] = info
+        pending["expire"] = time.time() + 60
+        name = pending["name"]
+
+        yield event.plain_result(
             f"\n是否使用此音频克隆音色「{name}」？\n"
             f"回复 确认 进行克隆，回复 取消 或 /mimo_clone_end 放弃。"
         )
@@ -303,15 +341,38 @@ class MiMoTTSPlugin(Star):
         """Handle confirmation reply in clone flow."""
         if msg_text == "确认":
             name = pending["name"]
-            audio_bytes = pending["audio_bytes"]
+            temp_path = pending.get("temp_path")
             del self._pending_clones[uk]
+
+            # Step 3: 克隆中
+            yield event.plain_result("克隆中...")
             try:
+                # Read audio from temp file
+                if temp_path and os.path.exists(temp_path):
+                    with open(temp_path, "rb") as f:
+                        audio_bytes = f.read()
+                else:
+                    yield event.plain_result("临时音频文件丢失，请重新发送音频。")
+                    return
+
                 self.voice_mgr.add_voice(name, audio_bytes)
                 ref_b64 = self.voice_mgr.get_reference_audio_b64(name)
+
+                # Step 4: 生成测试音频
                 test_audio = await self.client.clone_test(ref_b64)
                 self.voice_mgr.set_current_voice(name)
-                yield event.plain_result(f"音色「{name}」克隆完成！已自动设为当前音色。")
+
+                # Step 5: 完成
+                yield event.plain_result(f"已完成！音色「{name}」克隆成功，已自动设为当前音色。")
                 yield self._send_audio(event, test_audio, self._cfg("audio_format", "wav"))
+
+            except PermissionError:
+                yield event.plain_result(
+                    "文件操作失败：权限不足。\n\n"
+                    "警告：以管理员/root 权限运行存在安全风险，请谨慎操作。\n"
+                    "建议通过 Docker 挂载可写卷或修改目录权限来解决。"
+                )
+                self.voice_mgr.remove_voice(name)
             except ValueError as e:
                 yield event.plain_result(str(e))
             except RuntimeError as e:
@@ -321,8 +382,16 @@ class MiMoTTSPlugin(Star):
                 logger.error(f"Clone error: {traceback.format_exc()}")
                 self.voice_mgr.remove_voice(name)
                 yield event.plain_result("音色克隆时发生未知错误，请查看日志。")
+            finally:
+                # 清理临时文件
+                if temp_path:
+                    self._cleanup_temp_file(temp_path)
+
         elif msg_text == "取消":
+            temp_path = pending.get("temp_path")
             del self._pending_clones[uk]
+            if temp_path:
+                self._cleanup_temp_file(temp_path)
             yield event.plain_result("已取消音色克隆。")
         # else: ignore unrelated messages
 
@@ -723,6 +792,28 @@ class MiMoTTSPlugin(Star):
                 logger.warning(f"Failed to download attachment from {url}")
 
         return None
+
+    def _save_temp_audio(self, audio_bytes: bytes, suffix: str) -> str:
+        """Save audio bytes to a temp file. Raises PermissionError on write failure."""
+        tmp_dir = Path(tempfile.gettempdir()) / "mimo_tts_clone"
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+        fd, path = tempfile.mkstemp(suffix=suffix, dir=str(tmp_dir))
+        try:
+            with os.fdopen(fd, "wb") as f:
+                f.write(audio_bytes)
+        except Exception:
+            os.close(fd)
+            raise
+        return path
+
+    @staticmethod
+    def _cleanup_temp_file(path: str):
+        """Delete a temp file if it exists."""
+        try:
+            if path and os.path.exists(path):
+                os.unlink(path)
+        except OSError:
+            pass
 
     def _send_audio(self, event: AstrMessageEvent, audio_bytes: bytes, fmt: str):
         """Send audio bytes back to the chat."""
