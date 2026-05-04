@@ -1,0 +1,80 @@
+{
+  "api_key": {
+    "type": "string",
+    "description": "MiMo API Key",
+    "hint": "在 platform.xiaomimimo.com 控制台获取",
+    "obvious_hint": true,
+    "default": ""
+  },
+  "default_voice": {
+    "type": "string",
+    "description": "默认音色名称",
+    "hint": "留空则使用最后克隆的音色；填写后自动切换",
+    "default": ""
+  },
+  "default_style": {
+    "type": "string",
+    "description": "默认语音风格",
+    "hint": "情绪描述（如 开心、温柔但疲惫）或方言（如 东北话、粤语），留空为默认",
+    "default": ""
+  },
+  "audio_format": {
+    "type": "string",
+    "description": "音频输出格式",
+    "options": ["wav", "mp3", "pcm16"],
+    "default": "wav"
+  },
+  "tts_probability": {
+    "type": "int",
+    "description": "TTS 回复概率 (0-100)",
+    "hint": "100 表示每条消息都转语音，0 表示不自动转语音；手动 /mimo_tts 命令不受此限制",
+    "default": 100
+  },
+  "max_tts_chars": {
+    "type": "int",
+    "description": "TTS 最大字数",
+    "hint": "超过此字数的文本不使用 TTS（改为文字回复），0 表示不限制",
+    "default": 200
+  },
+  "min_tts_chars": {
+    "type": "int",
+    "description": "TTS 最小字数",
+    "hint": "小于此字数的回复不使用 TTS，避免短回复频繁发语音",
+    "default": 2
+  },
+  "ban_words": {
+    "type": "text",
+    "description": "屏蔽词列表",
+    "hint": "包含这些词的回复将不使用 TTS，每行一个词",
+    "default": ""
+  },
+  "enable": {
+    "type": "bool",
+    "description": "启用 TTS 插件",
+    "default": true
+  },
+  "enable_llm_tool": {
+    "type": "bool",
+    "description": "启用 LLM 工具调用",
+    "hint": "允许 LLM 通过 function call 自动触发 TTS",
+    "default": false
+  },
+  "llm_tool_char_limit": {
+    "type": "bool",
+    "description": "LLM 工具是否受字数限制控制",
+    "hint": "开启后 LLM 触发的 TTS 也遵守最大/最小字数限制",
+    "default": true
+  },
+  "llm_continue_after_tts": {
+    "type": "bool",
+    "description": "LLM 发送语音后是否继续文字回复",
+    "hint": "开启后 LLM 发完语音还会继续输出文字",
+    "default": false
+  },
+  "emotion_model": {
+    "type": "string",
+    "description": "用于识别输出语气的模型 ID",
+    "hint": "留空则使用当前会话默认模型；填写模型 ID（如 mimo-v2-5-pro）可用 AI 自动判断语气",
+    "default": ""
+  }
+}
