@@ -31,7 +31,7 @@ PLUGIN_DATA_DIR_NAME = "astrbot_plugin_mimo_tts"
     "astrbot_plugin_mimo_tts",
     "Ayleovelle",
     "基于小米MiMo-V2.5-TTS-VoiceClone引擎的语音克隆与文本转语音插件",
-    "0.1.2-beta",
+    "0.1.3-beta",
 )
 class MiMoTTSPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
@@ -190,7 +190,7 @@ class MiMoTTSPlugin(Star):
         uk = self._user_key(event)
         pending = self._pending_clones.get(uk)
         if pending:
-            event.should_call_llm(False)  # 仅阻止 LLM 处理，不影响命令和文件接收
+            event.stop_event()  # 阻断整个管道，防止 LLM 回复
             if is_clone_end:
                 del self._pending_clones[uk]
                 yield event.plain_result("已终止克隆流程。")
