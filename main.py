@@ -22,7 +22,7 @@ PLUGIN_DATA_DIR_NAME = "astrbot_plugin_mimo_tts"
     "astrbot_plugin_mimo_tts",
     "Ayleovelle",
     "基于小米MiMo-V2.5-TTS-VoiceClone引擎的语音克隆与文本转语音插件",
-    "0.0.2-beta",
+    "0.0.3-beta",
 )
 class MiMoTTSPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
@@ -166,7 +166,9 @@ class MiMoTTSPlugin(Star):
         if prob < 100 and random.randint(1, 100) > prob:
             return
 
-        await self._do_tts(event, msg_text)
+        result = await self._do_tts(event, msg_text)
+        if result:
+            yield result
 
     async def _do_tts(self, event: AstrMessageEvent, text: str):
         """Core TTS logic shared by auto-TTS and command."""
@@ -215,10 +217,11 @@ class MiMoTTSPlugin(Star):
                 audio_format=fmt,
             )
 
-            yield self._send_audio(event, audio_bytes, fmt)
+            return self._send_audio(event, audio_bytes, fmt)
 
         except Exception:
             logger.debug(f"Auto-TTS failed: {traceback.format_exc()}")
+            return None
 
     # ── /mimo_tts ──────────────────────────────────────────────
     @filter.command("mimo_tts")

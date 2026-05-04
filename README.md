@@ -36,8 +36,8 @@ astrbot_plugin_mimo_tts/
 ├── main.py                # 插件入口，7 个命令处理器
 ├── mimo_client.py         # MiMo API 客户端（OpenAI SDK 封装）
 ├── voice_manager.py       # 音色 CRUD + 本地缓存
-├── config_manager.py      # 配置持久化（Key / 格式 / 风格）
 ├── metadata.yaml          # AstrBot 插件元数据
+├── _conf_schema.json      # WebUI 配置面板定义
 ├── requirements.txt       # Python 依赖
 ├── README.md              # 项目文档
 └── .gitignore
