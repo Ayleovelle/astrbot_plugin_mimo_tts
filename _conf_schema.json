@@ -53,6 +53,12 @@
     "description": "启用 TTS 插件",
     "default": true
   },
+  "admin_users": {
+    "type": "text",
+    "description": "管理员用户列表",
+    "hint": "每行一个用户 ID，这些用户可使用管理员命令（与系统管理员权限叠加）",
+    "default": ""
+  },
   "clone_timeout": {
     "type": "int",
     "description": "克隆等待超时（秒）",
