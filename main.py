@@ -10,7 +10,6 @@ from typing import Optional
 
 import aiohttp
 from astrbot.api.event import filter, AstrMessageEvent
-from astrbot.api.event.filter import PermissionType
 from astrbot.api.star import Context, Star, register
 from astrbot.api import logger
 from astrbot.core.config import AstrBotConfig
@@ -25,7 +24,7 @@ PLUGIN_DATA_DIR_NAME = "astrbot_plugin_mimo_tts"
     "astrbot_plugin_mimo_tts",
     "Ayleovelle",
     "基于小米MiMo-V2.5-TTS-VoiceClone引擎的语音克隆与文本转语音插件",
-    "0.0.6-beta",
+    "0.0.7-beta",
 )
 class MiMoTTSPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
@@ -155,6 +154,18 @@ class MiMoTTSPlugin(Star):
         chars = string.ascii_letters + string.digits
         return "".join(random.choices(chars, k=length))
 
+    def _is_admin(self, event: AstrMessageEvent) -> bool:
+        """Check if sender is admin (system admin or configured admin_users)."""
+        if event.is_admin():
+            return True
+        sender = event.get_sender_id()
+        admin_users = self._cfg("admin_users", "")
+        if admin_users:
+            admins = [u.strip() for u in admin_users.split("\n") if u.strip()]
+            if sender in admins:
+                return True
+        return False
+
     # ── auto-TTS: on_message ────────────────────────────────────
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def on_message_tts(self, event: AstrMessageEvent):
@@ -171,6 +182,7 @@ class MiMoTTSPlugin(Star):
         uk = self._user_key(event)
         pending = self._pending_clones.get(uk)
         if pending:
+            event.stop_event()  # 阻止消息传播到 LLM
             if time.time() > pending.get("expire", 0):
                 del self._pending_clones[uk]
                 yield event.plain_result("操作超时，已取消。")
@@ -434,9 +446,11 @@ class MiMoTTSPlugin(Star):
 
     # ── /mimo_my_voice (admin only) ────────────────────────────
     @filter.command("mimo_my_voice")
-    @filter.permission_type(PermissionType.ADMIN)
     async def cmd_my_voice(self, event: AstrMessageEvent):
         """列出所有已克隆的音色（仅管理员）"""
+        if not self._is_admin(event):
+            yield event.plain_result("仅管理员可使用此命令。")
+            return
         voices = self.voice_mgr.list_voices()
         if not voices:
             yield event.plain_result("尚未克隆任何音色。使用 /mimo_clone 创建。")
@@ -451,9 +465,11 @@ class MiMoTTSPlugin(Star):
 
     # ── /mimo_voice_delete (admin only + password confirm) ────
     @filter.command("mimo_voice_delete")
-    @filter.permission_type(PermissionType.ADMIN)
     async def cmd_voice_delete(self, event: AstrMessageEvent):
         """删除音色（需密码确认）。用法: /mimo_voice_delete <音色名>"""
+        if not self._is_admin(event):
+            yield event.plain_result("仅管理员可使用此命令。")
+            return
         raw = event.message_str.strip()
         if raw.startswith("/mimo_voice_delete"):
             raw = raw[len("/mimo_voice_delete"):].strip()
